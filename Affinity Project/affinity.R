@@ -27,11 +27,11 @@ library(reshape2)
 # events$Event.Date <- format(events$Event.Date, "%Y")
 # saveRDS(events,"data/events.rds")
 
-events <- readRDS("data/events.rds")
 # vars <- read.xlsx("data/P_Affinity Data.xlsx", sheet = 1, colNames = TRUE)
 # vars <- vars[, -5]
 # saveRDS(vars, "data/variables.rds")
 vars <- readRDS("data/variables.rds")
+events <- readRDS("data/events.rds")
 
 events <- events %>% subset(Source.Country %in% vars$Country.Name)
 counts <- events %>% group_by(Source.Country, Event.Date) %>% 
@@ -49,7 +49,7 @@ vars <- vars %>% subset(Country.Name %in% affinity$Source.Country)
 
 # trade <- read_csv("data/DOT_02-28-2023 04-56-02-14_timeSeries.csv")
 # saveRDS(trade, "data/trade_2015-2019.rds")
-readRDS("data/trade_2015-2019.rds")
+trade <- readRDS("data/trade_2015-2019.rds")
 trade <- trade[, c(-(8:74), -(80:82))]
 trade <- trade %>% subset(`Counterpart Country Name` == "United States")
 trade <- trade[grep("Trade", trade$`Indicator Name`), ]
@@ -58,7 +58,9 @@ trade <- melt(trade, id.vars = 1:2)
 names(trade)[3] <- "Time"
 names(trade)[1] <- "Country.Name"
 
-# x <- full_join(vars, trade, by = c("Time", "Country.Name"))
+# x <- full_join(df, trade, by = c("Country.Name" = "Source.Country", "Time" = "Event.Date"))
 
 
 df <- full_join(affinity, vars, by = c("Source.Country" = "Country.Name", "Event.Date" = "Time"))
+
+
