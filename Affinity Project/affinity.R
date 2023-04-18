@@ -1,6 +1,7 @@
 library(tidyverse)
 library(openxlsx)
 library(reshape2)
+library(countrycode)
 
 # load("data/events.2015.20180710092545.RData")
 # x15 <- x
@@ -53,14 +54,33 @@ trade <- readRDS("data/trade_2015-2019.rds")
 trade <- trade[, c(-(8:74), -(80:82))]
 trade <- trade %>% subset(`Counterpart Country Name` == "United States")
 trade <- trade[grep("Trade", trade$`Indicator Name`), ]
-trade <- trade[, c(-2, -(4:7))]
+trade$Source.Country <- countrycode(trade$`Country Code`, 
+                                    origin = "imf", destination = "country.name")
+trade <- trade[, c(13, 1:12)]
+trade <- na.omit(trade)
+trade <- trade[, c(-2, -3, -(5:8))]
 trade <- melt(trade, id.vars = 1:2)
 names(trade)[3] <- "Time"
-names(trade)[1] <- "Country.Name"
 
-# x <- full_join(df, trade, by = c("Country.Name" = "Source.Country", "Time" = "Event.Date"))
+df <- full_join(affinity, vars, 
+                by = c("Source.Country" = "Country.Name", "Event.Date" = "Time"))
 
+df <- full_join(df, trade, by = c("Source.Country", "Event.Date" = "Time"))
+colnames(df)[which(names(df) == "value")] <- "Goods.Value.of.Trade.Balance.US.Dollars"
+df <- df[, -28]
 
-df <- full_join(affinity, vars, by = c("Source.Country" = "Country.Name", "Event.Date" = "Time"))
+df <- na.omit(df)
+exclude2 <- count(df, Source.Country) %>% subset(n < 5)
+df <- df %>% subset(!Source.Country %in% exclude2$Source.Country)
 
+freedom <- read_csv("data/freedom_scores.csv")
+freedom <- freedom[, -1]
+freedom$`Country  Sort descending` <- gsub("*", "", freedom$`Country  Sort descending`, fixed = TRUE)
+freedom$`Total Score and Status` <- gsub("[^0-9]", "", freedom$`Total Score and Status`)
+freedom$`Total Score and Status` <- as.numeric(freedom$`Total Score and Status`)
+colnames(freedom) <- c("Source.Country", "Total.Score", "Political.Rights", "Civil.Liberties")
 
+df <- left_join(df, freedom)
+
+# impute missing values?
+# find literacy data and merge
