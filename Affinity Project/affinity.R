@@ -119,3 +119,40 @@ df <- df[, -(4:6)]
 
 # impute missing values?
 # impute and merge literacy data
+
+
+# Random Forest----
+
+df15 <- df %>% subset(Event.Date == 2015)
+df15 <- df15[, -2]
+as_tibble(df15)
+df15 <- column_to_rownames(df15, "Source.Country")
+df15$Total.Score <- as.numeric(df15$Total.Score)
+df15$Goods.Value.of.Trade.Balance.US.Dollars <- as.numeric(df15$Goods.Value.of.Trade.Balance.US.Dollars)
+colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df15$affinity <- round(df15$affinity, 1)
+df15 <- df15[, c(-2, -3, -5, -15, -17, -21)]
+
+
+library(randomForest)
+library(caret)
+
+#testing range of mtry values
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+set.seed(123)
+tunegrid <- expand.grid(.mtry=c(1:15))
+rf_gridsearch <- train(affinity~., data=df15, method="rf", 
+                       metric="Rsquared", tuneGrid=tunegrid, trControl=control)
+print(rf_gridsearch)
+plot(rf_gridsearch)
+
+#using best mtry value
+set.seed(1)
+rf <- randomForest(affinity ~ ., data = df15, ntree = 5000, 
+                   importance = TRUE, mtry = 2)
+rf
+varImpPlot(rf)
