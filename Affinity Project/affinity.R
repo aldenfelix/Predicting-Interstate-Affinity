@@ -2,6 +2,7 @@ library(tidyverse)
 library(openxlsx)
 library(reshape2)
 library(countrycode)
+library(VIM)
 
 # Loading, wrangling, and merging ICEWS coded event data----
 # slightly different formats between yearly data
@@ -97,12 +98,13 @@ df <- full_join(affinity, vars,
 
 df <- full_join(df, trade, by = c("Source.Country", "Event.Date" = "Time"))
 colnames(df)[which(names(df) == "value")] <- "Goods.Value.of.Trade.Balance.US.Dollars"
+df$Goods.Value.of.Trade.Balance.US.Dollars <- as.numeric(df$Goods.Value.of.Trade.Balance.US.Dollars)
 df <- df[, -28]
 
 # removing countries that don't have data for all 5 years
-df <- na.omit(df)
-exclude2 <- count(df, Source.Country) %>% subset(n < 5)
-df <- df %>% subset(!Source.Country %in% exclude2$Source.Country)
+# df <- na.omit(df)
+# exclude2 <- count(df, Source.Country) %>% subset(n < 5)
+# df <- df %>% subset(!Source.Country %in% exclude2$Source.Country)
 
 # loading, wrangling freedom data
 freedom <- read_csv("data/freedom_scores.csv")
@@ -112,31 +114,64 @@ freedom$`Country  Sort descending` <- gsub("*", "", freedom$`Country  Sort desce
 freedom$`Total Score and Status` <- gsub("[^0-9]", "", freedom$`Total Score and Status`)
 freedom$`Total Score and Status` <- as.numeric(freedom$`Total Score and Status`)
 colnames(freedom) <- c("Source.Country", "Total.Score", "Political.Rights", "Civil.Liberties")
+freedom$Total.Score <- as.numeric(freedom$Total.Score)
 
 # merging freedom scores with rest of data
 df <- left_join(df, freedom)
 df <- df[, -(4:6)]
 
-# impute missing values?
-# impute and merge literacy data
+#keep the obs that have affinity data
+df <- df[1:424,]
+
+#remove the row corresponding to "Andorra"
+df <- df[df$Source.Country != "Andorra", ]
 
 
-# Random Forest----
+## kNN imputation
+dfknnImpute1 <- kNN(df, k=5) # takes forever
+#summary(dfknnImpute1)
+df <- dfknnImpute1[, 1:28]
+
+
+
+# Turning affinity into categorical----
+
+df$affinity <- round(df$affinity, 0)
+
+for (i in 1:length(df$affinity)) {
+  if (df$affinity[i] < 0){
+    df$affinity[i] <- -1
+  }
+  else if (df$affinity[i] == 0){
+    df$affinity[i] <- 0
+  }
+  else if (df$affinity[i] == 1){
+    df$affinity[i] <- 1
+  }
+  if (df$affinity[i] == 2){
+    df$affinity[i] <- 2
+  }
+  else if (df$affinity[i] >= 3){
+    df$affinity[i] <- 3
+  }
+}
+
+df$affinity <- as.factor(df$affinity)
+
+# Regression Random Forest----
 
 df15 <- df %>% subset(Event.Date == 2015)
 df15 <- df15[, -2]
-as_tibble(df15)
+df15 <- as_tibble(df15)
 df15 <- column_to_rownames(df15, "Source.Country")
-df15$Total.Score <- as.numeric(df15$Total.Score)
-df15$Goods.Value.of.Trade.Balance.US.Dollars <- as.numeric(df15$Goods.Value.of.Trade.Balance.US.Dollars)
 colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
                     "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
                     "pol_rights", "civil_lib")
 df15$affinity <- round(df15$affinity, 1)
-df15 <- df15[, c(-2, -3, -5, -15, -17, -21)]
-
+# df15 <- df15[, c(-2, -3, -5, -7, -15, -17, -21)]
+df15 <- df15[, c(-2, -15)]
 
 library(randomForest)
 library(caret)
@@ -153,6 +188,110 @@ plot(rf_gridsearch)
 #using best mtry value
 set.seed(1)
 rf <- randomForest(affinity ~ ., data = df15, ntree = 5000, 
-                   importance = TRUE, mtry = 2)
+                   importance = TRUE, mtry = 4)
 rf
 varImpPlot(rf)
+
+
+
+# Classification Random Forest----
+
+df15 <- df %>% subset(Event.Date == 2015)
+df15 <- df15[, -2]
+df15 <- as_tibble(df15)
+df15 <- column_to_rownames(df15, "Source.Country")
+colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df15 <- df15[, c(-15, -16, -18, -21, -20, -22)]
+
+library(randomForest)
+library(caret)
+
+#testing range of mtry values
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+set.seed(123)
+tunegrid <- expand.grid(.mtry=c(1:15))
+rf_gridsearch <- train(affinity~., data=df15, method="rf", 
+                       metric="Accuracy", tuneGrid=tunegrid, trControl=control)
+print(rf_gridsearch)
+plot(rf_gridsearch)
+
+#using best mtry value
+set.seed(1)
+rf <- randomForest(affinity ~ ., data = df15, ntree = 5000, 
+                   importance = TRUE, mtry = 4)
+rf
+varImpPlot(rf)
+
+
+#---------------------------16
+df16 <- df %>% subset(Event.Date == 2016)
+df16 <- df16[, -2]
+df16 <- as_tibble(df16)
+df16 <- column_to_rownames(df16, "Source.Country")
+colnames(df16) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df16 <- df16[, c(-15, -16, -18, -21, -20, -22)]
+
+#using best mtry value
+set.seed(1)
+rf16 <- randomForest(affinity ~ ., data = df16, ntree = 5000, 
+                   importance = TRUE, mtry = 4)
+rf16
+#---------------------------17
+df17 <- df %>% subset(Event.Date == 2017)
+df17 <- df17[, -2]
+df17 <- as_tibble(df17)
+df17 <- column_to_rownames(df17, "Source.Country")
+colnames(df17) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df17 <- df17[, c(-15, -16, -18, -21, -20, -22)]
+
+#using best mtry value
+set.seed(1)
+rf17 <- randomForest(affinity ~ ., data = df17, ntree = 5000, 
+                     importance = TRUE, mtry = 4)
+rf17
+#---------------------------18
+df18 <- df %>% subset(Event.Date == 2018)
+df18 <- df18[, -2]
+df18 <- as_tibble(df18)
+df18 <- column_to_rownames(df18, "Source.Country")
+colnames(df18) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df18 <- df18[, c(-15, -16, -18, -21, -20, -22)]
+
+#using best mtry value
+set.seed(1)
+rf18 <- randomForest(affinity ~ ., data = df18, ntree = 5000, 
+                     importance = TRUE, mtry = 4)
+rf18
+#---------------------------19
+df19 <- df %>% subset(Event.Date == 2019)
+df19 <- df19[, -2]
+df19 <- as_tibble(df19)
+df19 <- column_to_rownames(df19, "Source.Country")
+colnames(df19) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df19 <- df19[, c(-15, -16, -18, -21, -20, -22)]
+
+#using best mtry value
+set.seed(1)
+rf19 <- randomForest(affinity ~ ., data = df19, ntree = 5000, 
+                     importance = TRUE, mtry = 4)
+rf19
