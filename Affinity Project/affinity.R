@@ -169,9 +169,9 @@ colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_e
                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
                     "pol_rights", "civil_lib")
-df15$affinity <- round(df15$affinity, 1)
+# df15$affinity <- round(df15$affinity, 1)
 # df15 <- df15[, c(-2, -3, -5, -7, -15, -17, -21)]
-df15 <- df15[, c(-2, -15)]
+# df15 <- df15[, c(-2, -15)]
 
 library(randomForest)
 library(caret)
@@ -295,3 +295,27 @@ set.seed(1)
 rf19 <- randomForest(affinity ~ ., data = df19, ntree = 5000, 
                      importance = TRUE, mtry = 4)
 rf19
+
+
+
+
+### Visualize variable importance ----------------------------------------------
+
+# Get variable importance from the model fit
+ImpData <- as.data.frame(importance(rf))
+ImpData$Var.Names <- row.names(ImpData)
+
+ggplot(ImpData, aes(x= reorder(Var.Names, -MeanDecreaseAccuracy), y=`MeanDecreaseAccuracy`)) +
+  geom_segment( aes(x= reorder(Var.Names, -MeanDecreaseAccuracy), xend=Var.Names, y=-5, yend=`MeanDecreaseAccuracy`), color="skyblue") +
+  geom_point(aes(size = MeanDecreaseGini), color="blue", alpha=0.6) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dotted", size = 1, color = "red") +
+  annotate("text", x = 10, y = -.4, label = "0 Mean Decrease Accuracy", 
+           angle = 90, size = 5, color = "red") +
+  theme(
+    legend.position="bottom",
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
