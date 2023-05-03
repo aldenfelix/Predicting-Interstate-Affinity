@@ -3,6 +3,8 @@ library(openxlsx)
 library(reshape2)
 library(countrycode)
 library(VIM)
+library(randomForest)
+library(caret)
 
 # Loading, wrangling, and merging ICEWS coded event data----
 # slightly different formats between yearly data
@@ -134,8 +136,72 @@ df <- dfknnImpute1[, 1:28]
 
 
 
-# Turning affinity into categorical----
+# Regression Random Forest----
+df15 <- df %>% subset(Event.Date == 2015)
+df15 <- df15[, -2]
+df15 <- as_tibble(df15)
+df15 <- column_to_rownames(df15, "Source.Country")
+colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+                    "life_exp", "mortality", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+                    "pol_rights", "civil_lib")
+df15$affinity <- round(df15$affinity, 1)
+df15 <- df15[, c(-3, -10, -12, -15, -18, -24)]
 
+# Split the data into training and testing sets (70% train, 30% test)
+set.seed(123)
+train_index <- sample(1:nrow(df15), 0.7 * nrow(df15))
+train_data <- df15[train_index, ]
+test_data <- df15[-train_index, ]
+
+# Set up the training control
+# Resampling 10 fold Cross-Validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train a random forest model using caret
+set.seed(1)
+model <- caret::train(affinity ~ ., data = train_data,
+                      method = "rf", # Random Forest
+                      trControl = train_control,
+                      tuneLength = 3,
+                      preProcess = c("center", "scale"),
+                      metric = "rsquared")
+
+# Print the model
+print(model) # Note the Kappa's
+
+# Make predictions on the test data
+predictions <- predict(model, test_data)
+
+# Calculate the RMSE (Root Mean Squared Error) of the model
+(RMSE <- sqrt(mean((predictions - test_data$affinity)^2)))
+
+plot(varImp(model))
+
+
+# #testing range of mtry values
+# control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# set.seed(123)
+# tunegrid <- expand.grid(.mtry=c(1:15))
+# rf_gridsearch <- train(affinity~., data=df15, method="rf", 
+#                        metric="Rsquared", tuneGrid=tunegrid, trControl=control)
+# print(rf_gridsearch)
+# plot(rf_gridsearch)
+# 
+# #using best mtry value
+set.seed(1)
+rf <- randomForest(affinity ~ ., data = df15, ntree = 5000,
+                   importance = TRUE, mtry = 4)
+rf
+varImpPlot(rf)
+#findCorrelation(cor(df15))
+
+
+
+# Classification Random Forest----
+
+#Turning affinity into categorical
 df$affinity <- round(df$affinity, 0)
 
 for (i in 1:length(df$affinity)) {
@@ -155,11 +221,8 @@ for (i in 1:length(df$affinity)) {
     df$affinity[i] <- 3
   }
 }
-
 df$affinity <- as.factor(df$affinity)
 
-# Regression Random Forest----
-
 df15 <- df %>% subset(Event.Date == 2015)
 df15 <- df15[, -2]
 df15 <- as_tibble(df15)
@@ -169,21 +232,48 @@ colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_e
                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
                     "pol_rights", "civil_lib")
-# df15$affinity <- round(df15$affinity, 1)
-# df15 <- df15[, c(-2, -3, -5, -7, -15, -17, -21)]
-# df15 <- df15[, c(-2, -15)]
+# df15 <- df15[, c(-15, -16, -18, -21, -20, -22)]
+# df15 <- df15[, c(-3, -10, -12, -15, -18, -24)]
+df15 <- df15[, c(-15, -16, -18, -20, -21, -22)]
 
-library(randomForest)
-library(caret)
-
-#testing range of mtry values
-control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# Split the data into training and testing sets (70% train, 30% test)
 set.seed(123)
-tunegrid <- expand.grid(.mtry=c(1:15))
-rf_gridsearch <- train(affinity~., data=df15, method="rf", 
-                       metric="Rsquared", tuneGrid=tunegrid, trControl=control)
-print(rf_gridsearch)
-plot(rf_gridsearch)
+train_index <- sample(1:nrow(df15), 0.7 * nrow(df15))
+train_data <- df15[train_index, ]
+test_data <- df15[-train_index, ]
+
+# Set up the training control
+# Resampling 10 fold Cross-Validation
+train_control <- trainControl(method = "cv", number = 10)
+
+# Train a random forest model using caret
+set.seed(1)
+model <- caret::train(affinity ~ ., data = train_data,
+                      method = "rf", # Random Forest
+                      trControl = train_control,
+                      tuneLength = 3,
+                      preProcess = c("center", "scale"),
+                      metric = "accuracy")
+
+# Print the model
+print(model) # Note the Kappa's
+
+# Make predictions on the test data
+predictions <- predict(model, test_data)
+
+# Calculate the accuracy of the model
+(accuracy <- mean(predictions == test_data$affinity))
+
+plot(varImp(model))
+
+# #testing range of mtry values
+# control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# set.seed(123)
+# tunegrid <- expand.grid(.mtry=c(1:15))
+# rf_gridsearch <- train(affinity~., data=df15, method="rf", 
+#                        metric="Accuracy", tuneGrid=tunegrid, trControl=control)
+# print(rf_gridsearch)
+# plot(rf_gridsearch)
 
 #using best mtry value
 set.seed(1)
@@ -193,120 +283,112 @@ rf
 varImpPlot(rf)
 
 
-
-# Classification Random Forest----
-
-df15 <- df %>% subset(Event.Date == 2015)
-df15 <- df15[, -2]
-df15 <- as_tibble(df15)
-df15 <- column_to_rownames(df15, "Source.Country")
-colnames(df15) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
-                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
-                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
-                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
-                    "pol_rights", "civil_lib")
-df15 <- df15[, c(-15, -16, -18, -21, -20, -22)]
-
-library(randomForest)
-library(caret)
-
-#testing range of mtry values
-control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
-set.seed(123)
-tunegrid <- expand.grid(.mtry=c(1:15))
-rf_gridsearch <- train(affinity~., data=df15, method="rf", 
-                       metric="Accuracy", tuneGrid=tunegrid, trControl=control)
-print(rf_gridsearch)
-plot(rf_gridsearch)
-
-#using best mtry value
-set.seed(1)
-rf <- randomForest(affinity ~ ., data = df15, ntree = 5000, 
-                   importance = TRUE, mtry = 4)
-rf
-varImpPlot(rf)
-
-
-#---------------------------16
-df16 <- df %>% subset(Event.Date == 2016)
-df16 <- df16[, -2]
-df16 <- as_tibble(df16)
-df16 <- column_to_rownames(df16, "Source.Country")
-colnames(df16) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
-                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
-                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
-                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
-                    "pol_rights", "civil_lib")
-df16 <- df16[, c(-15, -16, -18, -21, -20, -22)]
-
-#using best mtry value
-set.seed(1)
-rf16 <- randomForest(affinity ~ ., data = df16, ntree = 5000, 
-                   importance = TRUE, mtry = 4)
-rf16
-#---------------------------17
-df17 <- df %>% subset(Event.Date == 2017)
-df17 <- df17[, -2]
-df17 <- as_tibble(df17)
-df17 <- column_to_rownames(df17, "Source.Country")
-colnames(df17) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
-                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
-                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
-                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
-                    "pol_rights", "civil_lib")
-df17 <- df17[, c(-15, -16, -18, -21, -20, -22)]
-
-#using best mtry value
-set.seed(1)
-rf17 <- randomForest(affinity ~ ., data = df17, ntree = 5000, 
-                     importance = TRUE, mtry = 4)
-rf17
-#---------------------------18
-df18 <- df %>% subset(Event.Date == 2018)
-df18 <- df18[, -2]
-df18 <- as_tibble(df18)
-df18 <- column_to_rownames(df18, "Source.Country")
-colnames(df18) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
-                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
-                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
-                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
-                    "pol_rights", "civil_lib")
-df18 <- df18[, c(-15, -16, -18, -21, -20, -22)]
-
-#using best mtry value
-set.seed(1)
-rf18 <- randomForest(affinity ~ ., data = df18, ntree = 5000, 
-                     importance = TRUE, mtry = 4)
-rf18
-#---------------------------19
-df19 <- df %>% subset(Event.Date == 2019)
-df19 <- df19[, -2]
-df19 <- as_tibble(df19)
-df19 <- column_to_rownames(df19, "Source.Country")
-colnames(df19) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
-                    "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
-                    "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
-                    "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
-                    "pol_rights", "civil_lib")
-df19 <- df19[, c(-15, -16, -18, -21, -20, -22)]
-
-#using best mtry value
-set.seed(1)
-rf19 <- randomForest(affinity ~ ., data = df19, ntree = 5000, 
-                     importance = TRUE, mtry = 4)
-rf19
+# #---------------------------16
+# df16 <- df %>% subset(Event.Date == 2016)
+# df16 <- df16[, -2]
+# df16 <- as_tibble(df16)
+# df16 <- column_to_rownames(df16, "Source.Country")
+# colnames(df16) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+#                     "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+#                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+#                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+#                     "pol_rights", "civil_lib")
+# df16 <- df16[, c(-15, -16, -18, -21, -20, -22)]
+# 
+# df16$affinity <- round(df16$affinity, 1)
+# df16 <- df16[, c(-2, -3, -8, -10, -15)]
+# 
+# #using best mtry value
+# set.seed(1)
+# rf16 <- randomForest(affinity ~ ., data = df16, ntree = 5000, 
+#                    importance = TRUE, mtry = 4)
+# rf16
+# #---------------------------17
+# df17 <- df %>% subset(Event.Date == 2017)
+# df17 <- df17[, -2]
+# df17 <- as_tibble(df17)
+# df17 <- column_to_rownames(df17, "Source.Country")
+# colnames(df17) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+#                     "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+#                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+#                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+#                     "pol_rights", "civil_lib")
+# df17 <- df17[, c(-15, -16, -18, -21, -20, -22)]
+# 
+# #using best mtry value
+# set.seed(1)
+# rf17 <- randomForest(affinity ~ ., data = df17, ntree = 5000, 
+#                      importance = TRUE, mtry = 4)
+# rf17
+# #---------------------------18
+# df18 <- df %>% subset(Event.Date == 2018)
+# df18 <- df18[, -2]
+# df18 <- as_tibble(df18)
+# df18 <- column_to_rownames(df18, "Source.Country")
+# colnames(df18) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+#                     "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+#                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+#                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+#                     "pol_rights", "civil_lib")
+# df18 <- df18[, c(-15, -16, -18, -21, -20, -22)]
+# 
+# #using best mtry value
+# set.seed(1)
+# rf18 <- randomForest(affinity ~ ., data = df18, ntree = 5000, 
+#                      importance = TRUE, mtry = 4)
+# rf18
+# #---------------------------19
+# df19 <- df %>% subset(Event.Date == 2019)
+# df19 <- df19[, -2]
+# df19 <- as_tibble(df19)
+# df19 <- column_to_rownames(df19, "Source.Country")
+# colnames(df19) <- c("affinity", "gdp_growth_annual", "gdp_cap_growth", "health_exp_cap", "health_exp_gdp",
+#                     "gdp_cap_ppp", "gdp_ppp", "edu_exp", "nat_resc_rent", "women_seats", "women_bus_law_score",
+#                     "life_exp", "mort", "rd_exp", "hi_tech_export", "internet", "ict_good_exp", "ict_good_imp",
+#                     "ict_ser_exp", "gini", "ease_bus_score", "milt_exp", "trade_balance", "total_score",
+#                     "pol_rights", "civil_lib")
+# df19 <- df19[, c(-15, -16, -18, -21, -20, -22)]
+# 
+# #using best mtry value
+# set.seed(1)
+# rf19 <- randomForest(affinity ~ ., data = df19, ntree = 5000, 
+#                      importance = TRUE, mtry = 4)
+# rf19
 
 
 
 
 ### Visualize variable importance ----------------------------------------------
 
+# Regression
 # Get variable importance from the model fit
 ImpData <- as.data.frame(importance(rf))
 ImpData$Var.Names <- row.names(ImpData)
 
-ggplot(ImpData, aes(x= reorder(Var.Names, -MeanDecreaseAccuracy), y=`MeanDecreaseAccuracy`)) +
-  geom_segment( aes(x= reorder(Var.Names, -MeanDecreaseAccuracy), xend=Var.Names, y=-5, yend=`MeanDecreaseAccuracy`), color="skyblue") +
+ggplot(ImpData, aes(x= reorder(Var.Names, -`%IncMSE`), y=`%IncMSE`)) +
+  geom_segment( aes(x= reorder(Var.Names, -`%IncMSE`), xend=Var.Names, y=-6, yend=`%IncMSE`), color="skyblue") +
+  geom_point(aes(size = IncNodePurity), color="blue", alpha=0.6) +
+  theme_light() +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dotted", size = 1, color = "red") +
+  annotate("text", x = 10, y = -.4, label = "0 Mean Increase MSE", 
+           angle = 90, size = 5, color = "red") +
+  theme(
+    legend.position="bottom",
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  ) +
+  xlab("Variable")
+
+
+# Classification
+# Get variable importance from the model fit
+ImpData <- as.data.frame(importance(rf))
+ImpData$Var.Names <- row.names(ImpData)
+
+ggplot(ImpData, aes(x= reorder(Var.Names, -`MeanDecreaseAccuracy`), y=`MeanDecreaseAccuracy`)) +
+  geom_segment( aes(x= reorder(Var.Names, -MeanDecreaseAccuracy), xend=Var.Names, y=-6, yend=`MeanDecreaseAccuracy`), color="skyblue") +
   geom_point(aes(size = MeanDecreaseGini), color="blue", alpha=0.6) +
   theme_light() +
   coord_flip() +
@@ -318,4 +400,5 @@ ggplot(ImpData, aes(x= reorder(Var.Names, -MeanDecreaseAccuracy), y=`MeanDecreas
     panel.grid.major.y = element_blank(),
     panel.border = element_blank(),
     axis.ticks.y = element_blank()
-  )
+  ) +
+  xlab("Variable")
